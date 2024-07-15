@@ -1,20 +1,10 @@
 extern crate piston_window;
-extern crate gfx_device_gl;
-extern crate gfx_text;
-extern crate find_folder;
+extern crate serde_json;
 
 pub mod model;
 
+use std::fs;
 use piston_window::*;
-
-struct ClickableButton{
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-    color: [f32; 4],
-    text: String
-}
 
 fn draw_canvas(state: &Vec<Vec<bool>>, c: &Context, g: &mut G2d){
     let black = [0.0, 0.0, 0.0, 1.0];
@@ -41,39 +31,113 @@ fn draw_canvas(state: &Vec<Vec<bool>>, c: &Context, g: &mut G2d){
     }
 }
 
-fn draw_button(pos: &Vec<f64> ,state: &Vec<Vec<bool>>, c: &Context, g: &mut G2d, glyphs: &mut Glyphs) -> ClickableButton{
-    let black = [0.0, 0.0, 0.0, 1.0];
-    let white = [0.0, 0.0, 0.0, 0.0];
-    let button = ClickableButton{
-        x: pos[0],
-        y: pos[1],
-        width: pos[2],
-        height: pos[3],
-        color: [1.0, 0.0, 0.0, 1.0],
-        text: "Erase".to_string()
-    };
-    rectangle(
-        button.color,
-        [button.x, button.y, button.width, button.height],
-        c.transform, g
-    );
-    let size = 20.0;
+fn generate_conv2d(json: &serde_json::Value, name: &str) -> model::Conv2D{
+    let mut weight: String = name.to_owned();
+    weight.push_str(".weight");
+    let mut bias: String = name.to_owned();
+    bias.push_str(".bias");
     
-    // for horizontal center
-    //  - consider length, consider font size, consider width of rectangle
-    // for vertical center
-    //  - consider font size, consider height of rectangle
-    
-    text::Text::new_color([1.0, 1.0, 1.0, 1.0], size as u32).draw(
-        &button.text,
-        glyphs,
-        &c.draw_state,
-        c.transform.trans(button.x + 10.0, size + button.y + (button.height - size)/2.0),
-        g,
-    )
-    .unwrap();
+    let weight = json[weight].clone();
+    let mut weight_values = vec![
+                                vec![
+                                    vec![
+                                        vec![0.0; weight[0][0][0].as_array().unwrap().len()]
+                                    ; weight[0][0].as_array().unwrap().len()]
+                                ; weight[0].as_array().unwrap().len()]
+                            ; weight.as_array().unwrap().len()
+                            ];
+        
+    for i in 0..weight.as_array().unwrap().len(){
+        for j in 0..weight[i].as_array().unwrap().len(){
+            for k in 0..weight[i][j].as_array().unwrap().len(){
+                for l in 0..weight[i][j][k].as_array().unwrap().len(){
+                    weight_values[i][j][k][l] = weight[i][j][k][l].as_f64().unwrap() as f32;
+                }
+            }
+        }
+    }
 
-    button
+    let bias = json[bias].clone();
+    let mut bias_values = vec![0.0; bias.as_array().unwrap().len()];
+    for i in 0..bias.as_array().unwrap().len(){
+        bias_values[i] = bias[i].as_f64().unwrap() as f32;
+    }
+
+    model::Conv2D::new(
+        weight[0].as_array().unwrap().len() as u32,
+        weight.as_array().unwrap().len() as u32,
+        weight_values, 
+        bias_values
+    )
+}
+
+fn generate_fully_connected(json: &serde_json::Value, name: &str) -> model::FullyConnected{
+    let mut weight: String = name.to_owned();
+    weight.push_str(".weight");
+    let mut bias: String = name.to_owned();
+    bias.push_str(".bias");
+    
+    let weight = json[weight].clone();
+    let mut weight_values = vec![
+                                vec![0.0; weight[0].as_array().unwrap().len()]
+                                ; weight.as_array().unwrap().len()
+                            ];
+    
+    for i in 0..weight.as_array().unwrap().len(){
+        for j in 0..weight[i].as_array().unwrap().len(){
+            weight_values[i][j] = weight[i][j].as_f64().unwrap() as f32;
+        }
+    }
+
+    let bias = json[bias].clone();
+    let mut bias_values = vec![0.0; bias.as_array().unwrap().len()];
+    for i in 0..bias.as_array().unwrap().len(){
+        bias_values[i] = bias[i].as_f64().unwrap() as f32;
+    }
+
+    model::FullyConnected::new(
+        weight[0].as_array().unwrap().len() as u32,
+        weight.as_array().unwrap().len() as u32,
+        weight_values, 
+        bias_values
+    )
+}
+
+#[derive(Debug)]
+struct CNN{
+    input_size: u32,
+    output_size: u32,
+    conv1: model::Conv2D,
+    conv2: model::Conv2D,
+    fc: model::FullyConnected
+}
+
+impl CNN{
+    fn new(input_size: u32, output_size: u32, conv1: model::Conv2D, conv2: model::Conv2D, fc: model::FullyConnected) -> CNN{
+        CNN{
+            input_size: input_size,
+            output_size: output_size,
+            conv1: conv1,
+            conv2: conv2,
+            fc: fc
+        }
+    }
+
+    fn forward(&self, img: &Vec<Vec<Vec<f32>>>){
+        let img = self.conv1.forward(img);
+        let img = model::ReLU::forward(&img);
+        let pool2 = model::MaxPooling2D::new(2);
+        let img = pool2.forward(&img);
+        
+        let img = self.conv2.forward(&img);
+        let img = model::ReLU::forward(&img);
+        let img = pool2.forward(&img);
+
+        let img = model::Flatten::forward(&img);
+        let img = self.fc.forward(&img);
+        
+        println!("{:?}", img);
+    }
 }
 
 fn main() {
@@ -81,20 +145,27 @@ fn main() {
         WindowSettings::new("Draw Rust!", [540, 540])
         .exit_on_esc(true).build().unwrap();
     let mut draw = false;
-    let mut erase = false;
+    let mut erase = true;
 
-    // Load the font
-    let assets = find_folder::Search::ParentsThenKids(3, 3).for_folder("assets").unwrap();
-    let ref font_path = assets.join("Bebas-Neue.ttf");
-    let factory = window.factory.clone();
-    let mut glyphs = window.load_font(font_path).unwrap();
-    
-    let mut state: Vec<Vec<bool>> = vec![vec![false; 28]; 28];
+    let mut state: Vec<Vec<bool>> = vec![vec![true; 28]; 28];
     
     //let model = predict::CNN::new();
 
+    let file = fs::File::open("./src/assets/model.json")
+        .expect("file should open read only");
+    let json: serde_json::Value = serde_json::from_reader(file)
+        .expect("file should be proper JSON");
+
+    let conv1 = generate_conv2d(&json, "conv1");
+    let conv2 = generate_conv2d(&json, "conv2");
+    let fc = generate_fully_connected(&json, "fc1");
+
+    let cnn = CNN::new(1, 10, conv1, conv2, fc);
+    println!("{:?}", cnn);
+
     while let Some(e) = window.next() {
-        print!("{}[2J", 27 as char);
+        //print!("{}[2J", 27 as char);
+        /*
         println!("Draw Rust!");
         println!("Current Mode: {}", {
             if erase{
@@ -105,17 +176,12 @@ fn main() {
             }
         });
         println!("Press D to draw, E to erase, C to clear, P to predict");
-        
-        let mut buttons: Vec<ClickableButton> = vec![];
+        */
         window.draw_2d(&e, |c, g, device| {
             clear([1.0; 4], g);
             
-            // ! Fix the pass to draw canvas, it should be a reference
             draw_canvas(&state, &c, g);
             //buttons.push(draw_button(&vec![0.0, 600.0, 100.0, 30.0], &state, &c, g, &mut glyphs));
-            
-            // Update glyphs
-            glyphs.factory.encoder.flush(device);
         });
 
         if let Some(button) = e.press_args() {
@@ -133,20 +199,28 @@ fn main() {
                 state = vec![vec![false; 28]; 28];
                 println!("Clear - Write Mode");
             }
+            else if button == Button::Keyboard(Key::P){
+                let mut convert = vec![vec![0.0; 28]; 28];
+                for i in 0..28{
+                    for j in 0..28{
+                        if(state[i][j] == false){
+                            convert[i][j] = 1.0;
+                        }
+                        else{
+                            convert[i][j] = -1.0;
+                        }
+                    }
+                }
+                let wrapper = vec![convert.clone()];
+
+                cnn.forward(&wrapper);
+            }
         };
 
         if let Some(button) = e.press_args() {
             if button == Button::Mouse(MouseButton::Left) {
                 draw = true;
                 println!("Mouse Press");
-
-                for buttones in buttons.iter(){
-                    println!("Button: {}, {}, {}, {}", buttones.x, buttones.y, buttones.width, buttones.height);
-                    if buttones.x < e.mouse_cursor_args().unwrap()[0] && e.mouse_cursor_args().unwrap()[0] < buttones.x + buttones.width && buttones.y < e.mouse_cursor_args().unwrap()[1] && e.mouse_cursor_args().unwrap()[1] < buttones.y + buttones.height{
-                        println!("Erase Button Pressed: {}", erase);
-                        break;
-                    }
-                }
 
             }
         };
@@ -159,9 +233,10 @@ fn main() {
 
         if draw {
             if let Some(pos) = e.mouse_cursor_args() {
-                let (x, y) = (pos[0] as f32, pos[1] as f32);
-                if (x/20.0).floor() < 28.0 && x > 0.0 && (y/20.0).floor() < 28.0 && y > 0.0{
-                    state[(x/20.0).floor() as usize][(y/20.0).floor() as usize] = !erase;
+                let (x, y) = (((pos[0] as f32)/20.0).floor(), ((pos[1] as f32)/20.0).floor());
+                if x < 28.0 && x >= 0.0 && y < 28.0 && y >= 0.0{
+                    state[x as usize][y as usize] = !erase;
+                    todo!("Add functionality of increasing the brush size");
                     //println!("{}, {}", (x/20.0).floor(),(y/20.0).floor());
                 }
             };
