@@ -6,20 +6,13 @@ pub mod model;
 use std::fs;
 use piston_window::*;
 
-fn draw_canvas(state: &Vec<Vec<bool>>, c: &Context, g: &mut G2d){
+fn draw_canvas(state: &Vec<Vec<f32>>, c: &Context, g: &mut G2d){
     let black = [0.0, 0.0, 0.0, 1.0];
     let white = [0.0, 0.0, 0.0, 0.0];
     for i in 0..28{
         for j in 0..28{
             rectangle(
-                {
-                    if state[i][j]{
-                        white
-                    }
-                    else{
-                        black
-                    }
-                },
+                [0.0, 0.0, 0.0, state[i as usize][j as usize]],
                 [
                     20.0 * (i as f64),
                     20.0 * (j as f64),
@@ -145,9 +138,9 @@ fn main() {
         WindowSettings::new("Draw Rust!", [540, 540])
         .exit_on_esc(true).build().unwrap();
     let mut draw = false;
-    let mut erase = true;
+    let mut erase = false;
 
-    let mut state: Vec<Vec<bool>> = vec![vec![true; 28]; 28];
+    let mut state: Vec<Vec<f32>> = vec![vec![0.0; 28]; 28];
     
     //let model = predict::CNN::new();
 
@@ -196,23 +189,19 @@ fn main() {
             else if button == Button::Keyboard(Key::C){
                 // clear everything, back to draw
                 erase = false;
-                state = vec![vec![false; 28]; 28];
+                state = vec![vec![0.0; 28]; 28];
                 println!("Clear - Write Mode");
             }
             else if button == Button::Keyboard(Key::P){
+                println!("{:?}", state);
                 let mut convert = vec![vec![0.0; 28]; 28];
                 for i in 0..28{
                     for j in 0..28{
-                        if(state[i][j] == false){
-                            convert[i][j] = 1.0;
-                        }
-                        else{
-                            convert[i][j] = -1.0;
-                        }
+                        convert[i][j] = (state[j][i]-0.5)/0.5;
                     }
                 }
-                let wrapper = vec![convert.clone()];
 
+                let wrapper = vec![convert.clone()];
                 cnn.forward(&wrapper);
             }
         };
@@ -235,9 +224,30 @@ fn main() {
             if let Some(pos) = e.mouse_cursor_args() {
                 let (x, y) = (((pos[0] as f32)/20.0).floor(), ((pos[1] as f32)/20.0).floor());
                 if x < 28.0 && x >= 0.0 && y < 28.0 && y >= 0.0{
-                    state[x as usize][y as usize] = !erase;
-                    todo!("Add functionality of increasing the brush size");
-                    //println!("{}, {}", (x/20.0).floor(),(y/20.0).floor());
+                    if erase{
+                        state[x as usize][y as usize] = 0.0;
+                        let addX = vec![1.0, -1.0, 0.0, 0.0];
+                        let addY = vec![0.0, 0.0, -1.0, 1.0];
+                        for i in 0..4{
+                            let newX = x + addX[i];
+                            let newY = y + addY[i];
+                            if newX < 28.0 && newX >= 0.0 && newY < 28.0 && newY >= 0.0{
+                                state[newX as usize][newY as usize] = 0.0;
+                            }
+                        }
+                    }
+                    else{
+                        state[x as usize][y as usize] = 1.0;
+                        let addX = vec![1.0, -1.0, 0.0, 0.0];
+                        let addY = vec![0.0, 0.0, -1.0, 1.0];
+                        for i in 0..4{
+                            let newX = x + addX[i];
+                            let newY = y + addY[i];
+                            if newX < 28.0 && newX >= 0.0 && newY < 28.0 && newY >= 0.0{
+                                state[newX as usize][newY as usize] = std::cmp::max((state[newX as usize][newY as usize]*100.0) as u32, 99_u32) as f32 / 100.0;
+                            }
+                        }
+                    }//println!("{}, {}", (x/20.0).floor(),(y/20.0).floor());
                 }
             };
         }
