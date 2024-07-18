@@ -16,6 +16,8 @@ The `model.rs` file contained tests to make sure that the mentioned layers were 
 
 Download the folder and run `cargo run`. The program will render a canvas where the user can draw on.
 
+https://github.com/user-attachments/assets/004f4cd5-8f16-4cb2-996a-dd94affefebf
+
 ## Future Goals
 
 - [ ] Implement a pure rust training
