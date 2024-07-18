@@ -85,9 +85,9 @@ impl MaxPooling2D{
     }
 
     pub fn forward(&self, input: &Vec<Vec<Vec<f32>>>) -> Vec<Vec<Vec<f32>>>{
-        /// # MaxPooling2D
-        /// Input: (layers, rows, cols)
-        /// Output: (layers, floor(rows/pool_size), floor(cols/pool_size))
+        // # MaxPooling2D
+        // Input: (layers, rows, cols)
+        // Output: (layers, floor(rows/pool_size), floor(cols/pool_size))
         let mut output: Vec<Vec<Vec<f32>>> = vec![
             vec![
                 vec![0.0; input[0][0].len() / self.pool_size as usize]
@@ -188,7 +188,29 @@ impl FullyConnected{
     }
 }
 
+pub fn argmax(input: &Vec<f32>) -> usize{
+    let mut max = 0.0;
+    let mut index = 0;
+    for i in 0..input.len(){
+        if input[i] > max{
+            max = input[i];
+            index = i;
+        }
+    }
+    index
+}
 
+pub fn softmax(input: &Vec<f32>) -> Vec<f32>{
+    let mut output: Vec<f32> = vec![0.0; input.len()];
+    let mut sum = 0.0;
+    for i in 0..input.len(){
+        sum += input[i].exp();
+    }
+    for i in 0..input.len(){
+        output[i] = input[i].exp() / sum;
+    }
+    output
+}
 
 #[cfg(test)]
 mod tests {

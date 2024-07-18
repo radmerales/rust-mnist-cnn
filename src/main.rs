@@ -7,8 +7,6 @@ use std::fs;
 use piston_window::*;
 
 fn draw_canvas(state: &Vec<Vec<f32>>, c: &Context, g: &mut G2d){
-    let black = [0.0, 0.0, 0.0, 1.0];
-    let white = [0.0, 0.0, 0.0, 0.0];
     for i in 0..28{
         for j in 0..28{
             rectangle(
@@ -116,7 +114,7 @@ impl CNN{
         }
     }
 
-    fn forward(&self, img: &Vec<Vec<Vec<f32>>>){
+    fn forward(&self, img: &Vec<Vec<Vec<f32>>>) -> u32{
         let img = self.conv1.forward(img);
         let img = model::ReLU::forward(&img);
         let pool2 = model::MaxPooling2D::new(2);
@@ -129,8 +127,25 @@ impl CNN{
         let img = model::Flatten::forward(&img);
         let img = self.fc.forward(&img);
         
-        println!("{:?}", img);
+        let img = model::softmax(&img);
+        model::argmax(&img) as u32
     }
+}
+
+fn print_screen(erase: &bool){
+    println!("{}[2J", 27 as char);
+
+    println!("Draw Rust!");
+    println!("Current Mode: {}", {
+        if *erase{
+            "Erase"
+        }
+        else{
+            "Write"
+        }
+    });
+    println!("Press D to draw, E to erase, C to clear, P to predict");
+
 }
 
 fn main() {
@@ -139,13 +154,22 @@ fn main() {
         .exit_on_esc(true).build().unwrap();
     let mut draw = false;
     let mut erase = false;
+    let fill = 1;
 
     let mut state: Vec<Vec<f32>> = vec![vec![0.0; 28]; 28];
     
     //let model = predict::CNN::new();
 
-    let file = fs::File::open("./src/assets/model.json")
-        .expect("file should open read only");
+    let file_result = fs::File::open("./src/assets/model.json");
+    let file = match file_result {
+        Ok(file) => file,
+        Err(e) => {
+            println!("Error: {}", e);
+            return;
+        }
+    };
+
+
     let json: serde_json::Value = serde_json::from_reader(file)
         .expect("file should be proper JSON");
 
@@ -154,23 +178,11 @@ fn main() {
     let fc = generate_fully_connected(&json, "fc1");
 
     let cnn = CNN::new(1, 10, conv1, conv2, fc);
-    println!("{:?}", cnn);
+    
 
     while let Some(e) = window.next() {
-        //print!("{}[2J", 27 as char);
-        /*
-        println!("Draw Rust!");
-        println!("Current Mode: {}", {
-            if erase{
-                "Erase"
-            }
-            else{
-                "Write"
-            }
-        });
-        println!("Press D to draw, E to erase, C to clear, P to predict");
-        */
-        window.draw_2d(&e, |c, g, device| {
+        
+        window.draw_2d(&e, |c, g, _device| {
             clear([1.0; 4], g);
             
             draw_canvas(&state, &c, g);
@@ -180,20 +192,23 @@ fn main() {
         if let Some(button) = e.press_args() {
             if button == Button::Keyboard(Key::E) {
                 erase = true;
-                println!("Erase Mode");
+                print_screen(&erase);
+                //println!("Erase Mode");
             }
             else if button == Button::Keyboard(Key::D){
                 erase = false;
-                println!("Write Mode");
+                print_screen(&erase);
+                //println!("Write Mode");
             }
             else if button == Button::Keyboard(Key::C){
                 // clear everything, back to draw
                 erase = false;
                 state = vec![vec![0.0; 28]; 28];
-                println!("Clear - Write Mode");
+                print_screen(&erase);
+                //println!("Clear - Write Mode");
             }
             else if button == Button::Keyboard(Key::P){
-                println!("{:?}", state);
+                //println!("{:?}", state);
                 let mut convert = vec![vec![0.0; 28]; 28];
                 for i in 0..28{
                     for j in 0..28{
@@ -202,21 +217,23 @@ fn main() {
                 }
 
                 let wrapper = vec![convert.clone()];
-                cnn.forward(&wrapper);
+                let result = cnn.forward(&wrapper);
+                print_screen(&erase);
+                println!("Predicted: {}", result);
             }
         };
 
         if let Some(button) = e.press_args() {
             if button == Button::Mouse(MouseButton::Left) {
                 draw = true;
-                println!("Mouse Press");
+                //println!("Mouse Press");
 
             }
         };
         if let Some(button) = e.release_args() {
             if button == Button::Mouse(MouseButton::Left) {
                 draw = false;
-                println!("Mouse up");
+                //println!("Mouse up");
             }
         };
 
@@ -226,25 +243,29 @@ fn main() {
                 if x < 28.0 && x >= 0.0 && y < 28.0 && y >= 0.0{
                     if erase{
                         state[x as usize][y as usize] = 0.0;
-                        let addX = vec![1.0, -1.0, 0.0, 0.0];
-                        let addY = vec![0.0, 0.0, -1.0, 1.0];
-                        for i in 0..4{
-                            let newX = x + addX[i];
-                            let newY = y + addY[i];
-                            if newX < 28.0 && newX >= 0.0 && newY < 28.0 && newY >= 0.0{
-                                state[newX as usize][newY as usize] = 0.0;
+                        if fill == 2{
+                            let add_x = vec![1.0, -1.0, 0.0, 0.0];
+                            let add_y = vec![0.0, 0.0, -1.0, 1.0];
+                            for i in 0..4{
+                                let new_x = x + add_x[i];
+                                let new_y = y + add_y[i];
+                                if new_x < 28.0 && new_x >= 0.0 && new_y < 28.0 && new_y >= 0.0{
+                                    state[new_x as usize][new_y as usize] = 0.0;
+                                }
                             }
                         }
                     }
                     else{
                         state[x as usize][y as usize] = 1.0;
-                        let addX = vec![1.0, -1.0, 0.0, 0.0];
-                        let addY = vec![0.0, 0.0, -1.0, 1.0];
-                        for i in 0..4{
-                            let newX = x + addX[i];
-                            let newY = y + addY[i];
-                            if newX < 28.0 && newX >= 0.0 && newY < 28.0 && newY >= 0.0{
-                                state[newX as usize][newY as usize] = std::cmp::max((state[newX as usize][newY as usize]*100.0) as u32, 99_u32) as f32 / 100.0;
+                        if fill == 2{
+                            let add_x = vec![1.0, -1.0, 0.0, 0.0];
+                            let add_y = vec![0.0, 0.0, -1.0, 1.0];
+                            for i in 0..4{
+                                let new_x = x + add_x[i];
+                                let new_y = y + add_y[i];
+                                if new_x < 28.0 && new_x >= 0.0 && new_y < 28.0 && new_y >= 0.0{
+                                    state[new_x as usize][new_y as usize] = std::cmp::max((state[new_x as usize][new_y as usize]*100.0) as u32, 99_u32) as f32 / 100.0;
+                                }
                             }
                         }
                     }//println!("{}, {}", (x/20.0).floor(),(y/20.0).floor());
